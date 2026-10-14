@@ -217,6 +217,15 @@ const isHlsPlaybackUrl = (url: string) =>
   url.includes('/api/proxy-m3u8') ||
   url.includes('/api/proxy/vod/m3u8');
 
+const isPwaPlayback = () => {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches ||
+    (window.navigator as any).standalone === true
+  );
+};
+
 const PLAY_SHORTCUT_GROUPS = [
   {
     title: '播放控制',
@@ -8812,9 +8821,7 @@ function PlayPageClient() {
                 if (!artPlayerRef.current) return;
 
                 // 检测是否在 PWA 模式下
-                const isPWA = window.matchMedia('(display-mode: standalone)').matches ||
-                  window.matchMedia('(display-mode: fullscreen)').matches ||
-                  (window.navigator as any).standalone === true;
+                const isPWA = isPwaPlayback();
 
                 // 检查是否已经在原生全屏状态
                 const isInNativeFullscreen = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
@@ -8844,18 +8851,26 @@ function PlayPageClient() {
                   return;
                 }
 
-                // 如果在 PWA 模式下，直接使用容器全屏（可以隐藏状态栏）
+                // iOS Safari 只支持在 <video> 上调用 webkitEnterFullscreen，容器 div 不支持。
+                // PWA 本身已经没有地址栏，进入网页全屏可保留播放器控件，并让 autoOrientation
+                // 在视频元数据就绪后把横版视频旋转为全屏。
                 if (isPWA) {
-                  const container = artPlayerRef.current.template.$container;
-                  if (container && container.webkitEnterFullscreen) {
-                    container.webkitEnterFullscreen().catch((err: Error) => {
-                      console.error('PWA 全屏失败:', err);
-                      // 如果失败，降级使用网页全屏
-                      artPlayerRef.current.fullscreenWeb = true;
-                    });
+                  const player = artPlayerRef.current;
+                  const video = player.template.$video as HTMLVideoElement;
+                  const enterWebFullscreen = () => {
+                    if (artPlayerRef.current === player) {
+                      player.fullscreenWeb = true;
+                    }
+                  };
+
+                  if (!video) {
+                    enterWebFullscreen();
+                  } else if (video.readyState >= 1 && video.videoWidth > 0) {
+                    enterWebFullscreen();
                   } else {
-                    // 不支持原生全屏，使用网页全屏
-                    artPlayerRef.current.fullscreenWeb = true;
+                    video.addEventListener('loadedmetadata', enterWebFullscreen, {
+                      once: true,
+                    });
                   }
                   return;
                 }
@@ -8975,6 +8990,10 @@ function PlayPageClient() {
             }] : []),
           ],
         });
+
+        if (isPwaPlayback()) {
+          artPlayerRef.current.template.$player.classList.add('mtv-pwa-player');
+        }
 
         artPlayerRef.current.on('destroy', () => {
           clearPlayerTimeouts();

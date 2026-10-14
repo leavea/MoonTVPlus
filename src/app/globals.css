@@ -197,6 +197,14 @@ div[data-media-provider] video {
   background-color: #000 !important; /* 其余区域填充为黑色 */
 }
 
+/* iOS PWA 网页全屏时，ArtPlayer 会先旋转播放器再铺满视口。
+   旋转后视频层的 left/right 对应屏幕上下安全区，不能直接使用 top。 */
+body > .art-video-player.mtv-pwa-player.art-fullscreen-web.art-auto-orientation .art-video {
+  left: env(safe-area-inset-top);
+  right: env(safe-area-inset-bottom);
+  width: auto;
+}
+
 /* 隐藏移动端竖屏时的 pip 按钮 */
 @media (max-width: 768px) {
   .art-control-pip {
