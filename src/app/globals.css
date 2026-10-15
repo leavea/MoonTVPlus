@@ -198,7 +198,7 @@ div[data-media-provider] video {
 }
 
 /* iOS PWA 网页全屏时，ArtPlayer 会旋转整个播放器容器。
-   必须让旋转后的容器落在上下安全区之间，而不是只偏移内部 video。 */
+   必须让旋转后的容器从顶部安全区开始，到底部安全区结束。 */
 body
   > .art-video-player.mtv-pwa-player.art-fullscreen-web.art-auto-orientation {
   width: calc(
@@ -207,12 +207,22 @@ body
   height: 100vw !important;
   transform: rotate(90deg)
     translate(
-      calc(
-        env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
-      ),
+      env(safe-area-inset-top, 0px),
       -100vw
     ) !important;
   transform-origin: 0 0 !important;
+}
+
+/* 旋转容器只占用安全区之间的区域，用黑底遮住底部露出的页面内容。 */
+body:has(
+    > .art-video-player.mtv-pwa-player.art-fullscreen-web.art-auto-orientation
+  )::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: #000;
+  pointer-events: none;
 }
 
 /* 隐藏移动端竖屏时的 pip 按钮 */
