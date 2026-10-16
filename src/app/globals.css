@@ -197,32 +197,34 @@ div[data-media-provider] video {
   background-color: #000 !important; /* 其余区域填充为黑色 */
 }
 
-/* iOS PWA 网页全屏时，ArtPlayer 会旋转整个播放器容器。
-   必须让旋转后的容器从顶部安全区开始，到底部安全区结束。 */
+/* iOS PWA 网页全屏按真实屏幕方向布局，不再用旋转容器模拟横屏。 */
 body
-  > .art-video-player.mtv-pwa-player.art-fullscreen-web.art-auto-orientation {
-  width: calc(
-    100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
-  ) !important;
-  height: 100vw !important;
-  transform: rotate(90deg)
-    translate(
-      env(safe-area-inset-top, 0px),
-      -100vw
-    ) !important;
-  transform-origin: 0 0 !important;
+  > .art-video-player.mtv-pwa-player.art-fullscreen-web {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  transform: none !important;
+  transform-origin: center !important;
+  background: #000 !important;
 }
 
-/* 旋转容器只占用安全区之间的区域，用黑底遮住底部露出的页面内容。 */
-body:has(
-    > .art-video-player.mtv-pwa-player.art-fullscreen-web.art-auto-orientation
-  )::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 9998;
-  background: #000;
-  pointer-events: none;
+.mtv-pwa-player.art-fullscreen-web .art-bottom {
+  padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)) !important;
+  padding-left: max(14px, env(safe-area-inset-left, 0px)) !important;
+  padding-right: max(14px, env(safe-area-inset-right, 0px)) !important;
+}
+
+.mtv-pwa-player.art-fullscreen-web .art-settings {
+  right: max(10px, env(safe-area-inset-right, 0px)) !important;
+}
+
+.mtv-pwa-player.art-fullscreen-web .art-notice {
+  padding-top: max(10px, env(safe-area-inset-top, 0px)) !important;
+  padding-left: max(14px, env(safe-area-inset-left, 0px)) !important;
+  padding-right: max(14px, env(safe-area-inset-right, 0px)) !important;
 }
 
 /* 隐藏移动端竖屏时的 pip 按钮 */

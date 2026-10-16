@@ -7755,7 +7755,8 @@ function PlayPageClient() {
           hotkey: false,
           // 观影室房员禁用长按加速（会临时改变倍速）
           fastForward: !playSync.shouldDisableControls,
-          autoOrientation: true,
+          // PWA 使用真实屏幕方向布局；在普通浏览器里保留 ArtPlayer 的伪横屏兜底。
+          autoOrientation: !isPwaPlayback(),
           lock: true,
           ...(videoQualities.length > 0 ? {
             quality: videoQualities.map((q, index) => ({
@@ -8852,8 +8853,7 @@ function PlayPageClient() {
                 }
 
                 // iOS Safari 只支持在 <video> 上调用 webkitEnterFullscreen，容器 div 不支持。
-                // PWA 本身已经没有地址栏，进入网页全屏可保留播放器控件，并让 autoOrientation
-                // 在视频元数据就绪后把横版视频旋转为全屏。
+                // PWA 使用沉浸式网页全屏，按真实屏幕方向布局以保留弹幕和自定义控件。
                 if (isPWA) {
                   const player = artPlayerRef.current;
                   const video = player.template.$video as HTMLVideoElement;
@@ -9203,8 +9203,9 @@ function PlayPageClient() {
             });
           }
 
-          // iOS 设备：监听屏幕方向变化，自动调整全屏状态
-          if (isIOS && artPlayerRef.current) {
+          // iOS 浏览器：监听屏幕方向变化，自动调整全屏状态。
+          // PWA 已按真实方向布局，退出/重进全屏反而会造成旋转和布局抖动。
+          if (isIOS && !isPwaPlayback() && artPlayerRef.current) {
             const handleOrientationChange = () => {
               if (!artPlayerRef.current) return;
 
