@@ -1,15 +1,16 @@
 /* eslint-disable no-console */
 'use client';
 
-import { AlertTriangle, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ChevronRight, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { PlayRecord } from '@/lib/db.client';
 import {
   clearAllPlayRecords,
-  getCachedPlayRecordsSnapshot,
+  deletePlayRecord,
   getAllPlayRecords,
+  getCachedPlayRecordsSnapshot,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 
@@ -30,6 +31,25 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
   const [loading, setLoading] = useState(true);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showPlayRecordsPanel, setShowPlayRecordsPanel] = useState(false);
+  const [recordToDelete, setRecordToDelete] = useState<PlayRecordItem | null>(
+    null
+  );
+  const [deletingRecord, setDeletingRecord] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  useEffect(() => {
+    if (!recordToDelete) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !deletingRecord) {
+        setRecordToDelete(null);
+        setDeleteError('');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [recordToDelete, deletingRecord]);
 
   const updatePlayRecords = (
     allRecords: Record<string, PlayRecord>,
@@ -97,6 +117,29 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
   const parseKey = (key: string) => {
     const [source, id] = key.split('+');
     return { source, id };
+  };
+
+  const handleDeleteRecord = async () => {
+    if (!recordToDelete || deletingRecord) return;
+
+    const { source, id } = parseKey(recordToDelete.key);
+    setDeletingRecord(true);
+    setDeleteError('');
+
+    try {
+      await deletePlayRecord(source, id);
+      setPlayRecords((prev) =>
+        prev.filter((item) => item.key !== recordToDelete.key)
+      );
+      setRecordToDelete(null);
+    } catch (error) {
+      console.error('删除播放记录失败:', error);
+      setDeleteError(
+        error instanceof Error ? error.message : '删除播放记录失败'
+      );
+    } finally {
+      setDeletingRecord(false);
+    }
   };
 
   const handleClearConfirm = async () => {
@@ -180,12 +223,26 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
                       totalTime={record.total_time}
                       isAnime={Boolean(record.is_anime)}
                     />
+                    <button
+                      type='button'
+                      aria-label={`清除《${record.title}》的观看记录`}
+                      title='清除观看记录'
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setDeleteError('');
+                        setRecordToDelete(record);
+                      }}
+                      className='absolute right-2 top-2 z-[120] flex h-8 w-8 items-center justify-center rounded-full bg-black/70 text-white shadow-md backdrop-blur-sm transition-colors hover:bg-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80'
+                    >
+                      <X className='h-4 w-4' strokeWidth={2.5} />
+                    </button>
                     {record.new_episodes && record.new_episodes > 0 && (
                       <div
                         style={{
                           position: 'absolute',
                           top: '-6px',
-                          right: '-6px',
+                          left: '-6px',
                           zIndex: 100,
                           pointerEvents: 'none',
                           width: '28px',
@@ -241,6 +298,77 @@ export default function ContinueWatching({ className }: ContinueWatchingProps) {
           </div>
         )}
       </section>
+
+      {recordToDelete &&
+        createPortal(
+          <div
+            className='fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4'
+            role='presentation'
+            onClick={() => {
+              if (!deletingRecord) {
+                setRecordToDelete(null);
+                setDeleteError('');
+              }
+            }}
+          >
+            <div
+              className='w-full max-w-md rounded-lg border border-red-200 bg-white shadow-xl dark:border-red-900/70 dark:bg-gray-800'
+              role='dialog'
+              aria-modal='true'
+              aria-labelledby='delete-play-record-title'
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className='p-6'>
+                <div className='mb-4 flex items-start gap-4'>
+                  <div className='flex-shrink-0'>
+                    <AlertTriangle className='h-8 w-8 text-red-500' />
+                  </div>
+                  <div className='min-w-0 flex-1'>
+                    <h3
+                      id='delete-play-record-title'
+                      className='mb-2 text-lg font-semibold text-gray-900 dark:text-gray-100'
+                    >
+                      清除观看记录
+                    </h3>
+                    <p className='text-sm leading-6 text-gray-600 dark:text-gray-400'>
+                      确定清除《{recordToDelete.title || '未命名内容'}》的观看记录吗？
+                    </p>
+                  </div>
+                </div>
+
+                {deleteError && (
+                  <p className='mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-300'>
+                    {deleteError}
+                  </p>
+                )}
+
+                <div className='mt-6 flex gap-3'>
+                  <button
+                    type='button'
+                    autoFocus
+                    disabled={deletingRecord}
+                    onClick={() => {
+                      setRecordToDelete(null);
+                      setDeleteError('');
+                    }}
+                    className='flex-1 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+                  >
+                    取消
+                  </button>
+                  <button
+                    type='button'
+                    disabled={deletingRecord}
+                    onClick={handleDeleteRecord}
+                    className='flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60'
+                  >
+                    {deletingRecord ? '正在清除...' : '确认清除'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {showConfirmDialog &&
         createPortal(

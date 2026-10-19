@@ -5527,7 +5527,10 @@ function PlayPageClient() {
       );
     };
 
-    const fetchSourcesData = async (query: string): Promise<SearchResult[]> => {
+    const fetchSourcesData = async (
+      query: string,
+      forceRefresh = false
+    ): Promise<SearchResult[]> => {
       // 根据搜索词获取全部源信息
       setHasCompletedSearchRequest(false);
       setFallbackRecommendations([]);
@@ -5544,7 +5547,7 @@ function PlayPageClient() {
           fallbackCachedResults = cachedResults;
           setAvailableSources(applyCorrectionsToSources(cachedResults));
 
-          if (cachedPayload.status === 'complete') {
+          if (cachedPayload.status === 'complete' && !forceRefresh) {
             setHasCompletedSearchRequest(true);
             return cachedResults;
           }
@@ -5706,23 +5709,67 @@ function PlayPageClient() {
           }
         }
 
-        // 异步获取其他源信息，不阻塞播放
-        setBackgroundSourcesLoading(true);
-        fetchSourcesData(searchTitle || videoTitle).then((sources) => {
-          // 合并当前源和搜索到的其他源
-          const allSources = [...sourcesInfo];
-          sources.forEach((source) => {
-            // 避免重复添加当前源
-            if (!(source.source === currentSource && source.id === currentId)) {
-              allSources.push(source);
-            }
+        if (detailData) {
+          // 当前源可用时，异步补充其他源，不阻塞播放。
+          setBackgroundSourcesLoading(true);
+          fetchSourcesData(searchTitle || videoTitle).then((sources) => {
+            // 合并当前源和搜索到的其他源
+            const allSources = [...sourcesInfo];
+            sources.forEach((source) => {
+              // 避免重复添加当前源
+              if (!(source.source === currentSource && source.id === currentId)) {
+                allSources.push(source);
+              }
+            });
+            setAvailableSources(applyCorrectionsToSources(allSources));
+            setBackgroundSourcesLoading(false);
+          }).catch((err) => {
+            console.error('异步获取其他源失败:', err);
+            setBackgroundSourcesLoading(false);
           });
-          setAvailableSources(applyCorrectionsToSources(allSources));
-          setBackgroundSourcesLoading(false);
-        }).catch((err) => {
-          console.error('异步获取其他源失败:', err);
-          setBackgroundSourcesLoading(false);
-        });
+        } else {
+          // 当前源详情失效时，等待搜索完成后再决定能否继续播放。
+          setLoadingStage('searching');
+          setLoadingMessage('🎬 原播放源不可用，正在重新匹配...');
+          setBackgroundSourcesLoading(true);
+          try {
+            const replacementSources = await fetchSourcesData(
+              searchTitle || videoTitle,
+              true
+            );
+            sourcesInfo = replacementSources;
+
+            if (replacementSources.length > 0) {
+              const exactSource = replacementSources.find(
+                (source) =>
+                  source.source === currentSource && source.id === currentId
+              );
+              const exactPlayableReplacement =
+                exactSource && (exactSource.episodes?.length || 0) > 0
+                  ? exactSource
+                  : undefined;
+              const sameSourcePlayableReplacement = replacementSources.find(
+                (source) =>
+                  source.source === currentSource &&
+                  (source.episodes?.length || 0) > 0
+              );
+              const playableReplacement = replacementSources.find(
+                (source) => (source.episodes?.length || 0) > 0
+              );
+              detailData =
+                exactPlayableReplacement ||
+                sameSourcePlayableReplacement ||
+                playableReplacement ||
+                exactSource ||
+                replacementSources.find(
+                  (source) => source.source === currentSource
+                ) ||
+                replacementSources[0];
+            }
+          } finally {
+            setBackgroundSourcesLoading(false);
+          }
+        }
       } else {
         // 没有source和id，正常搜索流程
         sourcesInfo = await fetchSourcesData(searchTitle || videoTitle);
@@ -5737,30 +5784,6 @@ function PlayPageClient() {
       if (!detailData) {
         detailData = sourcesInfo[0];
       }
-      // 指定源和id且无需优选
-      if (currentSource && currentId && !needPreferRef.current) {
-        const target = sourcesInfo.find(
-          (source) => source.source === currentSource && source.id === currentId
-        );
-        if (target) {
-          detailData = target;
-
-          // 这类源统一通过详情接口补全播放数据
-          if (isLazyDetailSource(detailData.source) && (!detailData.episodes || detailData.episodes.length === 0)) {
-            console.log('[Play] Fetching lazy detail for selected source...');
-            // currentSource 已经是完整格式
-            const detailSources = await fetchSourceDetail(currentSource, currentId, searchTitle || videoTitle);
-            if (detailSources.length > 0) {
-              detailData = detailSources[0];
-            }
-          }
-        } else {
-          setError('未找到匹配结果');
-          setLoading(false);
-          return;
-        }
-      }
-
       // 未指定源和 id 或需要优选，且开启优选开关
       if (
         (!currentSource || !currentId || needPreferRef.current) &&
@@ -5872,7 +5895,47 @@ function PlayPageClient() {
         });
         const allRecords = await getAllPlayRecords();
         const key = generateStorageKey(detailData.source, detailData.id);
-        const record = allRecords[key];
+        const previousKey =
+          currentSource && currentId
+            ? generateStorageKey(currentSource, currentId)
+            : null;
+        let record = allRecords[key];
+
+        // 旧播放源失效并重新匹配到新 source/id 时，把原记录和进度迁过去。
+        if (!record && previousKey && previousKey !== key) {
+          const previousRecord = allRecords[previousKey];
+          if (previousRecord) {
+            const totalEpisodes = Math.max(1, detailData.episodes?.length || 1);
+            const resumeIndex =
+              previousRecord.index > 0 && previousRecord.index <= totalEpisodes
+                ? previousRecord.index
+                : 1;
+            const migratedRecord = {
+              ...previousRecord,
+              title: detailData.title || previousRecord.title,
+              source_name: detailData.source_name || previousRecord.source_name,
+              year: detailData.year || previousRecord.year,
+              cover: detailData.poster || previousRecord.cover,
+              index: resumeIndex,
+              total_episodes: totalEpisodes,
+            };
+
+            record = migratedRecord;
+
+            try {
+              await migratePlayRecord(
+                currentSource,
+                currentId,
+                detailData.source,
+                detailData.id,
+                migratedRecord
+              );
+            } catch (migrationError) {
+              // 即使记录迁移落盘失败，本次续播仍应使用旧进度。
+              console.warn('[Play] 迁移播放记录失败:', migrationError);
+            }
+          }
+        }
 
         // 确定初始集数索引
         let initialIndex = 0;
