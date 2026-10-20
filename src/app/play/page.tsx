@@ -30,6 +30,20 @@ import {
   searchAnime,
 } from '@/lib/danmaku/api';
 import {
+  getCachedDanmakuEpisodes,
+  setCachedDanmakuEpisodes,
+} from '@/lib/danmaku/episodes-cache';
+import { cleanEpisodeDisplayName } from '@/lib/danmaku/format';
+import {
+  DANMAKU_OFFSET_MAX_SECONDS,
+  DANMAKU_OFFSET_MIN_SECONDS,
+  DANMAKU_OFFSET_STEP_SECONDS,
+  formatDanmakuOffsetSeconds,
+  loadDanmakuOffsetSeconds,
+  normalizeDanmakuOffsetSeconds,
+  saveDanmakuOffsetSeconds,
+} from '@/lib/danmaku/offset';
+import {
   getDanmakuAnimeId,
   getDanmakuSearchKeyword,
   getDanmakuSourceIndex,
@@ -39,11 +53,6 @@ import {
   saveDanmakuSourceIndex,
   saveManualDanmakuSelection,
 } from '@/lib/danmaku/selection-memory';
-import { cleanEpisodeDisplayName } from '@/lib/danmaku/format';
-import {
-  getCachedDanmakuEpisodes,
-  setCachedDanmakuEpisodes,
-} from '@/lib/danmaku/episodes-cache';
 import type { DanmakuAnime, DanmakuComment, DanmakuSelection, DanmakuSettings } from '@/lib/danmaku/types';
 import type { EpisodeTitleCorrection } from '@/lib/episode-title-correction';
 import {
@@ -1119,6 +1128,7 @@ function PlayPageClient() {
   const danmakuLoadInFlightRef = useRef<{ episodeIndex: number; promise: Promise<'done' | 'retry'> } | null>(null);
   // 弹幕自动加载逻辑的最新引用（由下方 effect 赋值，供播放器插件就绪后重入同一流程）
   const danmakuEpisodeLoaderRef = useRef<((episodeIndex: number) => Promise<'done' | 'retry'>) | null>(null);
+  const danmakuOffsetSecondsRef = useRef(0);
 
   // 统一写入弹幕完整分集列表：更新 state，并按视频标题做 LRU 缓存，供下次进入复用
   const applyDanmakuEpisodes = useCallback(
@@ -1214,6 +1224,14 @@ function PlayPageClient() {
         return 'retry';
       }
 
+      const offsetSeconds = loadDanmakuOffsetSeconds(
+        currentSourceRef.current,
+        currentIdRef.current,
+        episodeIndex
+      );
+      danmakuOffsetSecondsRef.current = offsetSeconds;
+      syncDanmakuOffsetSetting(offsetSeconds);
+
       console.log(`[弹幕] 开始加载第 ${episodeIndex + 1} 集弹幕`);
 
       // 立即清空当前弹幕（使用 reset 方法，不触发显示/隐藏事件）
@@ -1245,7 +1263,10 @@ function PlayPageClient() {
           setDanmakuLoading(true);
 
           // 转换弹幕格式
-          let danmakuData = convertDanmakuFormat(cachedData.comments);
+          let danmakuData = convertDanmakuFormat(
+            cachedData.comments,
+            offsetSeconds
+          );
 
           // 手动应用过滤规则
           const filterConfig = danmakuFilterConfigRef.current;
@@ -2554,6 +2575,44 @@ function PlayPageClient() {
 
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
+
+  const syncDanmakuOffsetSetting = (offsetSeconds: number) => {
+    const settingItem =
+      artPlayerRef.current?.setting?.find?.('danmaku-offset');
+    if (!settingItem) {
+      return;
+    }
+
+    const normalizedOffset =
+      normalizeDanmakuOffsetSeconds(offsetSeconds);
+    settingItem.range = [
+      normalizedOffset,
+      DANMAKU_OFFSET_MIN_SECONDS,
+      DANMAKU_OFFSET_MAX_SECONDS,
+      DANMAKU_OFFSET_STEP_SECONDS,
+    ];
+    settingItem.tooltip = formatDanmakuOffsetSeconds(normalizedOffset);
+  };
+
+  const reloadDanmakuForOffsetChange = async () => {
+    const loader = danmakuEpisodeLoaderRef.current;
+    if (!loader) {
+      return;
+    }
+
+    await loader(currentEpisodeIndexRef.current);
+  };
+
+  useEffect(() => {
+    const offset = loadDanmakuOffsetSeconds(
+      currentSource,
+      currentId,
+      currentEpisodeIndex
+    );
+    danmakuOffsetSecondsRef.current = offset;
+    syncDanmakuOffsetSetting(offset);
+  }, [currentSource, currentId, currentEpisodeIndex]);
+
   // 换集重建播放器前记住网页全屏状态，新播放器 ready 后恢复
   const restoreWebFullscreenOnReadyRef = useRef(false);
   const activeHarmonyHlsPlaybackModeRef =
@@ -6627,6 +6686,13 @@ function PlayPageClient() {
       // 获取弹幕数据（使用 title + episodeIndex 缓存；episodeIndex 经 ref 读取，避免闭包过期）
       const title = videoTitleRef.current;
       const episodeIndex = currentEpisodeIndexRef.current;
+      const offsetSeconds = loadDanmakuOffsetSeconds(
+        currentSourceRef.current,
+        currentIdRef.current,
+        episodeIndex
+      );
+      danmakuOffsetSecondsRef.current = offsetSeconds;
+      syncDanmakuOffsetSetting(offsetSeconds);
 
       console.log(`[弹幕加载] episodeId=${episodeId}, title="${title}", episodeIndex=${episodeIndex}`);
 
@@ -6646,7 +6712,10 @@ function PlayPageClient() {
       }
 
       // 转换弹幕格式
-      let danmakuData = convertDanmakuFormat(comments);
+      let danmakuData = convertDanmakuFormat(
+        comments,
+        offsetSeconds
+      );
 
       // 手动应用过滤规则（因为缓存的弹幕不会经过播放器的 filter 函数）
       const filterConfig = danmakuFilterConfigRef.current;
@@ -6884,7 +6953,10 @@ function PlayPageClient() {
       }
 
       // 转换弹幕格式
-      let danmakuData = convertDanmakuFormat(comments);
+      let danmakuData = convertDanmakuFormat(
+        comments,
+        danmakuOffsetSecondsRef.current
+      );
 
       // 应用过滤规则
       const filterConfig = danmakuFilterConfigRef.current;
@@ -9207,6 +9279,52 @@ function PlayPageClient() {
               },
               default: defaultOption,
             });
+
+            if (!isDirectPlay) {
+              const initialDanmakuOffset = loadDanmakuOffsetSeconds(
+                currentSourceRef.current,
+                currentIdRef.current,
+                currentEpisodeIndexRef.current
+              );
+              danmakuOffsetSecondsRef.current = initialDanmakuOffset;
+              artPlayerRef.current.setting.add({
+                name: 'danmaku-offset',
+                html: '弹幕校准',
+                tooltip: `${formatDanmakuOffsetSeconds(
+                  initialDanmakuOffset
+                )}，正数延后 / 负数提前`,
+                range: [
+                  initialDanmakuOffset,
+                  DANMAKU_OFFSET_MIN_SECONDS,
+                  DANMAKU_OFFSET_MAX_SECONDS,
+                  DANMAKU_OFFSET_STEP_SECONDS,
+                ],
+                onChange: function (item: any) {
+                  const offset = normalizeDanmakuOffsetSeconds(
+                    item.range[0]
+                  );
+                  danmakuOffsetSecondsRef.current = offset;
+                  return formatDanmakuOffsetSeconds(offset);
+                },
+                onRange: function (item: any) {
+                  const offset = normalizeDanmakuOffsetSeconds(
+                    item.range[0]
+                  );
+                  danmakuOffsetSecondsRef.current = offset;
+
+                  const episodeIndex = currentEpisodeIndexRef.current;
+                  saveDanmakuOffsetSeconds(
+                    currentSourceRef.current,
+                    currentIdRef.current,
+                    episodeIndex,
+                    offset
+                  );
+
+                  void reloadDanmakuForOffsetChange();
+                  return formatDanmakuOffsetSeconds(offset);
+                },
+              });
+            }
           }
 
           // 控制截图按钮在小屏幕竖屏时隐藏

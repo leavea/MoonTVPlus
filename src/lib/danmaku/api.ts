@@ -9,6 +9,7 @@ import {
   getDanmakuFromCache,
   saveDanmakuToCache,
 } from './cache';
+import { shiftDanmakuTime } from './offset';
 import type {
   DanmakuComment,
   DanmakuCommentsResponse,
@@ -232,7 +233,8 @@ import { convertDanmakuText } from './traditional-to-simplified';
 
 // 将 danmu_api 的弹幕格式转换为 artplayer-plugin-danmuku 格式
 export function convertDanmakuFormat(
-  comments: DanmakuComment[]
+  comments: DanmakuComment[],
+  offsetSeconds = 0
 ): Array<{
   text: string;
   time: number;
@@ -257,7 +259,7 @@ export function convertDanmakuFormat(
 
     return {
       text: convertDanmakuText(comment.m),
-      time,
+      time: shiftDanmakuTime(time, offsetSeconds),
       color,
       border: false,
       mode,
