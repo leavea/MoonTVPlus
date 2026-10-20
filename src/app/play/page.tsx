@@ -35,9 +35,6 @@ import {
 } from '@/lib/danmaku/episodes-cache';
 import { cleanEpisodeDisplayName } from '@/lib/danmaku/format';
 import {
-  DANMAKU_OFFSET_MAX_SECONDS,
-  DANMAKU_OFFSET_MIN_SECONDS,
-  DANMAKU_OFFSET_STEP_SECONDS,
   formatDanmakuOffsetSeconds,
   loadDanmakuOffsetSeconds,
   normalizeDanmakuOffsetSeconds,
@@ -119,6 +116,7 @@ import AIChatPanel from '@/components/AIChatPanel';
 import AIComments from '@/components/AIComments';
 import CorrectDialog from '@/components/CorrectDialog';
 import DanmakuFilterSettings from '@/components/DanmakuFilterSettings';
+import DanmakuOffsetDialog from '@/components/DanmakuOffsetDialog';
 import DetailPanel from '@/components/DetailPanel';
 import DoubanComments from '@/components/DoubanComments';
 import DownloadEpisodeSelector from '@/components/DownloadEpisodeSelector';
@@ -786,6 +784,8 @@ function PlayPageClient() {
   const [danmakuMatches, setDanmakuMatches] = useState<DanmakuAnime[]>([]);
   const [showDanmakuSourceSelector, setShowDanmakuSourceSelector] = useState(false);
   const [showDanmakuFilterSettings, setShowDanmakuFilterSettings] = useState(false);
+  const [showDanmakuOffsetDialog, setShowDanmakuOffsetDialog] =
+    useState(false);
   const [currentSearchKeyword, setCurrentSearchKeyword] = useState<string>(''); // 当前搜索使用的关键词
   const [toast, setToast] = useState<ToastProps | null>(null);
   const [isTranscoding, setIsTranscoding] = useState(false);
@@ -2585,12 +2585,6 @@ function PlayPageClient() {
 
     const normalizedOffset =
       normalizeDanmakuOffsetSeconds(offsetSeconds);
-    settingItem.range = [
-      normalizedOffset,
-      DANMAKU_OFFSET_MIN_SECONDS,
-      DANMAKU_OFFSET_MAX_SECONDS,
-      DANMAKU_OFFSET_STEP_SECONDS,
-    ];
     settingItem.tooltip = formatDanmakuOffsetSeconds(normalizedOffset);
   };
 
@@ -2601,6 +2595,20 @@ function PlayPageClient() {
     }
 
     await loader(currentEpisodeIndexRef.current);
+  };
+
+  const handleDanmakuOffsetSave = (value: number) => {
+    const offset = normalizeDanmakuOffsetSeconds(value);
+    danmakuOffsetSecondsRef.current = offset;
+    saveDanmakuOffsetSeconds(
+      currentSourceRef.current,
+      currentIdRef.current,
+      currentEpisodeIndexRef.current,
+      offset
+    );
+    syncDanmakuOffsetSetting(offset);
+    setShowDanmakuOffsetDialog(false);
+    void reloadDanmakuForOffsetChange();
   };
 
   useEffect(() => {
@@ -9290,38 +9298,14 @@ function PlayPageClient() {
               artPlayerRef.current.setting.add({
                 name: 'danmaku-offset',
                 html: '弹幕校准',
-                tooltip: `${formatDanmakuOffsetSeconds(
+                tooltip: formatDanmakuOffsetSeconds(
                   initialDanmakuOffset
-                )}，正数延后 / 负数提前`,
-                range: [
-                  initialDanmakuOffset,
-                  DANMAKU_OFFSET_MIN_SECONDS,
-                  DANMAKU_OFFSET_MAX_SECONDS,
-                  DANMAKU_OFFSET_STEP_SECONDS,
-                ],
-                onChange: function (item: any) {
-                  const offset = normalizeDanmakuOffsetSeconds(
-                    item.range[0]
+                ),
+                onClick: function () {
+                  setShowDanmakuOffsetDialog(true);
+                  return formatDanmakuOffsetSeconds(
+                    danmakuOffsetSecondsRef.current
                   );
-                  danmakuOffsetSecondsRef.current = offset;
-                  return formatDanmakuOffsetSeconds(offset);
-                },
-                onRange: function (item: any) {
-                  const offset = normalizeDanmakuOffsetSeconds(
-                    item.range[0]
-                  );
-                  danmakuOffsetSecondsRef.current = offset;
-
-                  const episodeIndex = currentEpisodeIndexRef.current;
-                  saveDanmakuOffsetSeconds(
-                    currentSourceRef.current,
-                    currentIdRef.current,
-                    episodeIndex,
-                    offset
-                  );
-
-                  void reloadDanmakuForOffsetChange();
-                  return formatDanmakuOffsetSeconds(offset);
                 },
               });
             }
@@ -12273,6 +12257,13 @@ function PlayPageClient() {
         accept={CUSTOM_SUBTITLE_ACCEPT}
         className='hidden'
         onChange={handleCustomSubtitleFileChange}
+      />
+
+      <DanmakuOffsetDialog
+        isOpen={showDanmakuOffsetDialog}
+        value={danmakuOffsetSecondsRef.current}
+        onClose={() => setShowDanmakuOffsetDialog(false)}
+        onSave={handleDanmakuOffsetSave}
       />
 
       {/* 下载选集面板 */}

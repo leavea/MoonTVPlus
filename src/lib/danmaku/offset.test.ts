@@ -12,9 +12,9 @@ describe('danmaku offset', () => {
   });
 
   it('normalizes and formats offsets', () => {
-    expect(normalizeDanmakuOffsetSeconds(12.26)).toBe(12.5);
+    expect(normalizeDanmakuOffsetSeconds(12.26)).toBe(12.3);
     expect(normalizeDanmakuOffsetSeconds(-999)).toBe(-180);
-    expect(formatDanmakuOffsetSeconds(12.5)).toBe('+12.5s');
+    expect(formatDanmakuOffsetSeconds(12.3)).toBe('+12.3s');
     expect(formatDanmakuOffsetSeconds(-3)).toBe('-3s');
   });
 

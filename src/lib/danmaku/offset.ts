@@ -1,6 +1,6 @@
 export const DANMAKU_OFFSET_MIN_SECONDS = -180;
 export const DANMAKU_OFFSET_MAX_SECONDS = 180;
-export const DANMAKU_OFFSET_STEP_SECONDS = 0.5;
+export const DANMAKU_OFFSET_STEP_SECONDS = 0.1;
 
 const DANMAKU_OFFSET_STORAGE_KEY = 'danmaku_episode_offsets_v1';
 
