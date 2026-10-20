@@ -6831,11 +6831,40 @@ const VideoSourceConfig = ({
   };
 
   const handleDelete = (key: string) => {
-    withLoading(`deleteSource_${key}`, () =>
-      callSourceApi({ action: 'delete', key })
-    ).catch(() => {
-      console.error('操作失败', 'delete', key);
+    const source = sources.find((item) => item.key === key);
+    const deleteSource = () =>
+      withLoading(`deleteSource_${key}`, () =>
+        callSourceApi({ action: 'delete', key })
+      ).catch(() => {
+        console.error('操作失败', 'delete', key);
+      });
+
+    if (source?.from !== 'config') {
+      deleteSource();
+      return;
+    }
+
+    const closeConfirm = () => {
+      setConfirmModal({
+        isOpen: false,
+        title: '',
+        message: '',
+        onConfirm: () => {},
+        onCancel: () => {},
+      });
+    };
+
+    setConfirmModal({
+      isOpen: true,
+      title: '删除配置文件源',
+      message: `确定删除“${source.name}”吗？删除后该源会持续隐藏，重新添加或重置配置可恢复。`,
+      onConfirm: async () => {
+        await deleteSource();
+        closeConfirm();
+      },
+      onCancel: closeConfirm,
     });
+    return;
   };
 
   const handleToggleProxyMode = (key: string) => {
@@ -7566,19 +7595,17 @@ const VideoSourceConfig = ({
           >
             {!source.disabled ? '禁用' : '启用'}
           </button>
-          {source.from !== 'config' && (
-            <button
-              onClick={() => handleDelete(source.key)}
-              disabled={isLoading(`deleteSource_${source.key}`)}
-              className={`${buttonStyles.roundedSecondary} ${
-                isLoading(`deleteSource_${source.key}`)
-                  ? 'opacity-50 cursor-not-allowed'
-                  : ''
-              }`}
-            >
-              删除
-            </button>
-          )}
+          <button
+            onClick={() => handleDelete(source.key)}
+            disabled={isLoading(`deleteSource_${source.key}`)}
+            className={`${buttonStyles.roundedSecondary} ${
+              isLoading(`deleteSource_${source.key}`)
+                ? 'opacity-50 cursor-not-allowed'
+                : ''
+            }`}
+          >
+            删除
+          </button>
         </td>
       </tr>
     );
@@ -7637,7 +7664,7 @@ const VideoSourceConfig = ({
         actionName = '批量禁用';
         break;
       case 'batch_delete':
-        confirmMessage = `确定要删除选中的 ${keys.length} 个视频源吗？此操作不可恢复！`;
+        confirmMessage = `确定要删除选中的 ${keys.length} 个视频源吗？配置文件中的源删除后会持续隐藏，可通过重新添加或重置配置恢复。`;
         actionName = '批量删除';
         break;
     }
@@ -7653,35 +7680,13 @@ const VideoSourceConfig = ({
             callSourceApi({ action, keys })
           );
 
-          // 根据操作类型和结果显示不同的消息
-          if (
-            action === 'batch_delete' &&
-            result?.deleted !== undefined &&
-            result?.skipped !== undefined
-          ) {
-            const { deleted, skipped } = result;
-            if (skipped > 0) {
-              showAlert({
-                type: 'warning',
-                title: '批量删除完成',
-                message: `成功删除了 ${deleted} 个视频源，跳过了 ${skipped} 个配置文件中的源（不可删除）`,
-                timer: 3000,
-              });
-            } else if (deleted > 0) {
-              showAlert({
-                type: 'success',
-                title: '批量删除成功',
-                message: `成功删除了 ${deleted} 个视频源`,
-                timer: 2000,
-              });
-            } else {
-              showAlert({
-                type: 'warning',
-                title: '无法删除',
-                message: '所选视频源均为配置文件中的源，不可删除',
-                timer: 3000,
-              });
-            }
+          if (action === 'batch_delete' && result?.deleted !== undefined) {
+            showAlert({
+              type: 'success',
+              title: '批量删除成功',
+              message: `成功删除了 ${result.deleted} 个视频源`,
+              timer: 2000,
+            });
           } else {
             showAlert({
               type: 'success',

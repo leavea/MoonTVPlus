@@ -115,6 +115,7 @@ export interface AdminConfig {
     proxyMode?: boolean; // 代理模式开关：启用后由服务器代理m3u8和ts分片
     weight?: number; // 权重：用于排序和优选评分，默认0，范围0-100
   }[];
+  DeletedSourceKeys?: string[]; // 后台删除的配置文件源，防止配置合并时重新出现
   CustomCategories: {
     name?: string;
     type: 'movie' | 'tv';

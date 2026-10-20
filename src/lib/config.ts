@@ -105,6 +105,14 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
     fileConfig = {} as ConfigFileStruct;
   }
 
+  const deletedSourceKeys = new Set(
+    Array.isArray(adminConfig.DeletedSourceKeys)
+      ? adminConfig.DeletedSourceKeys.filter(
+          (key): key is string => typeof key === 'string' && key.length > 0
+        )
+      : []
+  );
+
   // 合并文件中的源信息
   const apiSitesFromFile = Object.entries(fileConfig.api_site || []);
   const currentApiSites = new Map(
@@ -112,6 +120,10 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   );
 
   apiSitesFromFile.forEach(([key, site]) => {
+    if (deletedSourceKeys.has(key)) {
+      return;
+    }
+
     const existingSource = currentApiSites.get(key);
     if (existingSource) {
       // 如果已存在，只覆盖 name、api、detail 和 from
@@ -141,7 +153,10 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   });
 
   // 将 Map 转换回数组
-  adminConfig.SourceConfig = Array.from(currentApiSites.values());
+  adminConfig.DeletedSourceKeys = Array.from(deletedSourceKeys);
+  adminConfig.SourceConfig = Array.from(currentApiSites.values()).filter(
+    (source) => !deletedSourceKeys.has(source.key)
+  );
 
   const specialApisFromFile = Array.isArray(fileConfig.special_source_apis)
     ? fileConfig.special_source_apis
@@ -365,6 +380,7 @@ async function getInitConfig(
       Users: [],
     },
     SourceConfig: [],
+    DeletedSourceKeys: [],
     CustomCategories: [],
     LiveConfig: [],
     TelegramConfig: {
@@ -697,6 +713,20 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   if (!adminConfig.SourceConfig || !Array.isArray(adminConfig.SourceConfig)) {
     adminConfig.SourceConfig = [];
   }
+  adminConfig.DeletedSourceKeys = Array.from(
+    new Set(
+      Array.isArray(adminConfig.DeletedSourceKeys)
+        ? adminConfig.DeletedSourceKeys.filter(
+            (key): key is string =>
+              typeof key === 'string' && key.length > 0
+          )
+        : []
+    )
+  );
+  const deletedSourceKeys = new Set(adminConfig.DeletedSourceKeys);
+  adminConfig.SourceConfig = adminConfig.SourceConfig.filter(
+    (source) => !deletedSourceKeys.has(source.key)
+  );
   if (
     !adminConfig.CustomCategories ||
     !Array.isArray(adminConfig.CustomCategories)

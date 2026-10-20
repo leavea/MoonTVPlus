@@ -110,6 +110,9 @@ export async function POST(request: NextRequest) {
         if (adminConfig.SourceConfig.some((s) => s.key === key)) {
           return NextResponse.json({ error: '该源已存在' }, { status: 400 });
         }
+        adminConfig.DeletedSourceKeys = (
+          adminConfig.DeletedSourceKeys || []
+        ).filter((deletedKey) => deletedKey !== key);
         adminConfig.SourceConfig.push({
           key,
           name,
@@ -149,7 +152,9 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: '源不存在' }, { status: 404 });
         const entry = adminConfig.SourceConfig[idx];
         if (entry.from === 'config') {
-          return NextResponse.json({ error: '该源不可删除' }, { status: 400 });
+          adminConfig.DeletedSourceKeys = Array.from(
+            new Set([...(adminConfig.DeletedSourceKeys || []), key])
+          );
         }
         adminConfig.SourceConfig.splice(idx, 1);
         adminConfig.SpecialSourceApis = (adminConfig.SpecialSourceApis || []).filter(
@@ -217,18 +222,29 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        // 过滤掉 from=config 的源，记录跳过的数量
-        const keysToDelete: string[] = [];
-        const skippedKeys: string[] = [];
+        const entriesToDelete = keys
+          .map((key) =>
+            adminConfig.SourceConfig.find((source) => source.key === key)
+          )
+          .filter(
+            (
+              entry
+            ): entry is (typeof adminConfig.SourceConfig)[number] =>
+              Boolean(entry)
+          );
+        const keysToDelete = entriesToDelete.map((entry) => entry.key);
+        const deletedConfigKeys = entriesToDelete
+          .filter((entry) => entry.from === 'config')
+          .map((entry) => entry.key);
 
-        keys.forEach((key) => {
-          const entry = adminConfig.SourceConfig.find((s) => s.key === key);
-          if (entry && entry.from === 'config') {
-            skippedKeys.push(key);
-          } else if (entry) {
-            keysToDelete.push(key);
-          }
-        });
+        if (deletedConfigKeys.length > 0) {
+          adminConfig.DeletedSourceKeys = Array.from(
+            new Set([
+              ...(adminConfig.DeletedSourceKeys || []),
+              ...deletedConfigKeys,
+            ])
+          );
+        }
 
         // 批量删除
         keysToDelete.forEach((key) => {
@@ -271,7 +287,7 @@ export async function POST(request: NextRequest) {
         // 保存批量删除的统计信息，稍后返回
         (body as any)._batchDeleteResult = {
           deleted: keysToDelete.length,
-          skipped: skippedKeys.length,
+          skipped: 0,
         };
         break;
       }
